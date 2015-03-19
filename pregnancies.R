@@ -14,7 +14,7 @@ options(contrasts=c("contr.Treatment", getOption("contrasts")[2]))
 
 config <- yaml.load_file("local_config.yaml")
 
-predict.rob <- function(x, vcov.=vcov(x), signif.level=0.05, newdata) {
+predict.rob <- function(x, vcov.=vcov(x), signif.level=0.1, newdata) {
   if (missing(newdata) || is.null(newdata)) { 
     newdata <- x$model 
   }
@@ -84,11 +84,14 @@ add.if.missing.var <- function(.data, var) {
   return(.data)
 }
 
-prop.plot <- function(.data) { 
+prop.plot <- function(.data, ylab, title=NULL) { 
   ggplot(.data, aes(factor(age), fit, group=sex.activity)) +
-  geom_line(aes(color=sex.activity)) +
-  geom_ribbon(aes(ymin=fit.min, ymax=fit.max, fill=sex.activity), alpha=0.1) +
-  facet_wrap(~ country.code)
+    geom_line(aes(color=sex.activity)) +
+    geom_ribbon(aes(ymin=fit.min, ymax=fit.max, fill=sex.activity), alpha=0.2) +
+    labs(x="Age", y=ylab, title=title) +
+    scale_fill_discrete("Sexual Activity") +
+    scale_color_discrete("Sexual Activity") +
+    facet_wrap(~ country.code)
 }
 
 dhs.data <- foreach(dta.file=list.files(paste0(config$data_path, "/DHS_IR"), "??IR.+.DTA", full.names=TRUE, ignore.case=TRUE), .combine=rbind.fill) %do% tryCatch({
@@ -134,7 +137,8 @@ dhs.data <- foreach(dta.file=list.files(paste0(config$data_path, "/DHS_IR"), "??
            curr.contraceptive.modern=ifelse(curr.contraceptive.cat == 3, 1, 0),
            max.age.last.sex.partner=pmax(age.last.sex.partner.1, age.last.sex.partner.2, age.last.sex.partner.3, na.rm=TRUE),
            caught.sti.12mon.know=ifelse(caught.sti.12mon > 1, NA, caught.sti.12mon),
-           curr.married=ifelse(curr.marital.status == 9, NA, ifelse(curr.marital.status == 1, 1, 0)))
+           curr.married=ifelse(curr.marital.status == 9, NA, ifelse(curr.marital.status == 1, 1, 0)),
+           num.men.sex.partner=ifelse(num.men.sex.partner >= 98, NA, num.men.sex.partner) + curr.married)
 }, error=function(err) browser()) %>%
   left_join(foreach(dta.file=list.files(paste0(config$data_path, "/DHS_IR"), "??PR.+.DTA", full.names=TRUE, ignore.case=TRUE), .combine=rbind.fill) %do% tryCatch({
     read.dta(dta.file, convert.factors=FALSE) %>% 
@@ -162,17 +166,20 @@ dhs.data <- foreach(dta.file=list.files(paste0(config$data_path, "/DHS_IR"), "??
 #   group_by(country.code) %>% 
 #   do(reg.dhs(any.preg ~ 1, .data=.)) 
 
+# Sexual Activity Proportions
 dhs.data %>% 
   ggplot() +
   geom_bar(aes(factor(age), fill=sex.activity), position="fill") +
-  facet_wrap(~ country.code)
+  labs(x="Age", y="Proportion") +
+  scale_fill_discrete("Sexual Activity") +
+  facet_wrap(~ country.code) 
 
 year.educ.fit.data <- dhs.data %>%
   mutate(age=factor(age)) %>%
   group_by(country.code) %>%
   do(reg.dhs(year.educ ~ age*sex.activity, .data=., new.data=expand.grid(sex.activity=factor(levels(.$sex.activity)), age=factor(15:19)))) 
 
-year.educ.fit.data %>% prop.plot
+year.educ.fit.data %>% prop.plot("Years of Education")
 
 dhs.data %>% 
   filter(!is.na(school.attend.status)) %>%
@@ -187,25 +194,21 @@ dropout.fit.data <- dhs.data %>%
   group_by(country.code) %>%
   do(reg.dhs(not.attending.school ~ age*sex.activity, .data=., new.data=expand.grid(sex.activity=factor(levels(.$sex.activity)), age=factor(15:19)))) 
 
-dropout.fit.data %>% prop.plot
+dropout.fit.data %>% prop.plot("Not Attending School")
 
-dhs.data %>%
-  filter(!is.na(sex.activity)) %>% 
-  ggplot(aes(factor(age), year.educ)) +
-  geom_violin(aes(color=sex.activity)) +
-  facet_wrap(~ country.code)
+# dhs.data %>%
+#   filter(!is.na(sex.activity)) %>% 
+#   ggplot(aes(factor(age), year.educ)) +
+#   geom_violin(aes(color=sex.activity)) +
+#   facet_wrap(~ country.code)
 
 sti.fit.data <- dhs.data %>%
   filter(sex.activity != "inactive", !is.na(caught.sti.12mon.know)) %>% 
   mutate(age=factor(age)) %>%
   group_by(country.code) %>%
   do(reg.dhs(caught.sti.12mon.know ~ age*sex.activity, .data=., new.data=expand.grid(sex.activity=factor(levels(droplevels(.$sex.activity))), age=factor(15:19)))) 
-  ggplot(aes(factor(age), fit, group=sex.activity)) +
-  geom_line(aes(color=sex.activity)) +
-  geom_ribbon(aes(ymin=fit.min, ymax=fit.max, fill=sex.activity), alpha=0.1) +
-  facet_wrap(~ country.code)
 
-sti.fit.data %>% prop.plot
+sti.fit.data %>% prop.plot("Caught Any STI Within Last 12 Months")
 
 contraceptive.fit.data <- dhs.data %>%
   filter(sex.activity != "inactive") %>%
@@ -213,7 +216,24 @@ contraceptive.fit.data <- dhs.data %>%
   group_by(country.code) %>%
   do(reg.dhs(curr.contraceptive.modern ~ age*sex.activity, .data=., new.data=expand.grid(age=factor(15:19), sex.activity=factor(levels(droplevels(.$sex.activity)))))) 
 
-contraceptive.fit.data %>% prop.plot
+contraceptive.fit.data %>% prop.plot("Currently Using Modern Contraceptive")
+
+num.sex.partner.fit.data <- dhs.data %>%
+  filter(sex.activity != "inactive", !is.na(num.men.sex.partner)) %>%
+  mutate(age=factor(age)) %>%
+  group_by(country.code) %>%
+  do(reg.dhs(num.men.sex.partner ~ age*sex.activity, .data=., new.data=expand.grid(age=factor(15:19), sex.activity=factor(levels(droplevels(.$sex.activity)))))) 
+
+num.sex.partner.fit.data %>% prop.plot("Number of Sexual Partners with Last 12 Months")
+
+# dhs.data %>%
+#   filter(sex.activity != "inactive", !is.na(num.men.sex.partner)) %>%
+#   ggplot(aes(factor(age), num.men.sex.partner)) +
+#   geom_violin(aes(color=sex.activity)) +
+#   # geom_boxplot(aes(fill=sex.activity), notch=TRUE) +
+#   labs(x="Age", y="Number of Sexual Partners with Last 12 Months") +
+#   scale_fill_discrete("Sexual Activity") +
+#   facet_wrap(~ country.code)
 
 dhs.data %>%
   filter(sex.activity != "inactive") %>%
@@ -222,4 +242,6 @@ dhs.data %>%
   ggplot(aes(factor(age), partner.age)) +
   # geom_violin(aes(color=sex.activity)) +
   geom_boxplot(aes(fill=sex.activity), notch=TRUE) +
+  labs(x="Age", y="Partner's Age") +
+  scale_fill_discrete("Sexual Activity") +
   facet_wrap(~ country.code)
