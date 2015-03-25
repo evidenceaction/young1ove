@@ -1,0 +1,209 @@
+---
+title: "Young 1ove target audience and potential for impact"
+output: word_document
+bibliography: ~/Documents/library.bib
+---
+
+```{r setup, include=FALSE}
+library(foreign)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(magrittr)
+library(foreach)
+library(plm)
+library(lmtest)
+library(car)
+library(ggplot2)
+library(yaml)
+library(stringr)
+
+options(contrasts=c("contr.Treatment", getOption("contrasts")[2]))
+
+config <- yaml.load_file("local_config.yaml")
+
+knitr::opts_chunk$set(cache=TRUE, cache.path="y1impact_cache/", fig.path="y1impact_figure/")
+
+options(contrasts=c("contr.Treatment", getOption("contrasts")[2]))
+
+source("util.R")
+
+theme_set(theme_bw() + 
+            theme(panel.border=element_rect(color=NA), 
+                  axis.ticks=element_blank(), 
+                  strip.background=element_rect(color=NA, size=2)))
+
+```
+
+```{r, echo=FALSE}
+load("dhs.RData")
+
+```
+
+The results of the ongoing evaluation are still a year away, but initial indications of program quality, scalability, and potential for success are extremely promising. The program has been rolled out in 219 schools (113 implemented directly by Young 1ove peer educators and 106 by teachers) and has reached over 29,000 students. 
+
+@Dupas2011b conducted a randomized controlled trial in Kenya evaluating the effect of educating primary school-aged children on the relative risks of sex with older partners.  She finds evidence of a 28% reduction in childbearing, and impressively, a 61% reduction in pregnancies with older partners, one year after the informational intervention.  Since childbearing can be used as an objective proxy for unprotected sex, this points to a corresponding drop in unsafe sex with older men with a higher propensity for HIV infection.
+
+Dupas' theoretical motivation suggests the shift from engaging in sexual relationships with older to younger men as the mechanism driving the observed impact on fertility.  Since young women would have more bargaining power with younger men, and since younger men are less likely to be able to afford supporting a child, we observe lower incidence of childbearing.  Dupas finds suggestive evidence of this change in the age of sexual partners.
+
+To evaluate the potential impact of scaling such a relative risk informational intervention, we conduct a descriptive analysis using Demographic and Health Survey (DHS) data from nine countries in Sub-Saharan Africa^[This includes Kenya where the original RCT evaluating this intervention was conducted.]. We find very similar conditions of early fertility and intergenerational sexual relationships. [Need to cite each DHS dataset separately]
+
+The below plot shows the proportion of young women (15-19 years old) who are sexually active/inactive and those who have had any pregnancies (either carried to term or terminated).  We see a very similar increase in overall sexual activity starting from the age of 15, and, for the youngest (15-16 year olds), pregnancy rates are high relative to overall sexual activity, suggesting that the majority of those sexually active in that age group are engaged in unprotected sex^[Pregnancy outcomes are determined from the number of living children, current pregnancy status, and ever having a pregnancy terminated.].  
+
+```{r sex-activity, echo=FALSE, fig.width=10, fig.height=6}
+dhs.data %>% 
+  ggplot() +
+  geom_bar(aes(factor(age), fill=sex.activity), position="fill", alpha=0.8) +
+  labs(x="Age", y="Proportion") +
+  scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy", "Inactive")) +
+  facet_wrap(~ country.name) +
+  theme(legend.position="top")
+```
+
+The below boxplot shows the distribution of sexual partners' age for the two sexually active groups, those with and without prior pregnancies.  As can be observed, engaging in unprotected sex (using fertility as a proxy) tends to be positively correlated with having older sexual partners. This trend is also observed for all age groups, as shown in the second boxplot , separating age groups.
+
+```{r partner-age-1, echo=FALSE, fig.width=10, fig.height=6}
+partner.age.dhs.data <- dhs.data %>%
+  select(country.name, age, sex.activity, starts_with("age.last.sex.partner")) %>%
+  gather(partner, partner.age, age.last.sex.partner.1:age.last.sex.partner.3) %>%
+  filter(sex.activity != "inactive", !is.na(partner.age)) 
+
+partner.age.dhs.data %>%
+  ggplot(aes(sex.activity, partner.age)) +
+  # geom_violin(aes(color=sex.activity)) +
+  geom_boxplot(aes(fill=sex.activity)) +
+  labs(x=NULL, y="Partner's Age", title="Ages of last three sexual partners") +
+  scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy")) +
+  scale_y_continuous(breaks=seq(15, 70, 5)) +
+  facet_wrap(~ country.name, nrow=1) +
+  theme(legend.position="top", axis.text.x=element_blank()) # element_text(angle = 25, hjust = 1)) 
+```
+
+```{r partner-age-2, echo=FALSE, fig.width=10, fig.height=6}
+partner.age.dhs.data %>%
+  ggplot(aes(factor(age), partner.age)) +
+  # geom_violin(aes(color=sex.activity)) +
+  geom_boxplot(aes(fill=sex.activity)) +
+  labs(x="Age", y="Partner's Age", title="Ages of last three sexual partners") +
+  scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy")) +
+  scale_y_continuous(breaks=seq(15, 70, 5)) +
+  facet_wrap(~ country.name, nrow=2) +
+  theme(legend.position="top")
+```
+
+The below shows estimates of the average number of sexual partners the surveyed young women had within the last year, conditional on age (ribbons represent the 90% cluster robust confidence intervals).  We observe a positive correlation between unprotected sex and having multiple partners, further demonstrating the vulernability of this group to sexually transmitted infections.
+
+```{r num-partners, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6}
+num.sex.partner.fit.data <- dhs.data %>%
+  filter(sex.activity != "inactive", !is.na(num.men.sex.partner)) %>%
+  mutate(age=factor(age)) %>%
+  group_by(country.name) %>%
+  do(reg.dhs(num.men.sex.partner ~ age*sex.activity, .data=., new.data=expand.grid(age=factor(15:19), sex.activity=factor(levels(droplevels(.$sex.activity)))))) 
+
+num.sex.partner.fit.data %>% 
+  prop.plot("Number of Sexual Partners Within the Last 12 Months") + #, "Including husband if married") +
+  scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy", "Inactive")) +
+  scale_color_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy", "Inactive")) 
+
+# dhs.data %>%
+#   filter(sex.activity != "inactive", !is.na(num.men.sex.partner)) %>%
+#   ggplot(aes(sex.activity, num.men.sex.partner)) +
+#   geom_violin(aes(fill=sex.activity)) +
+#   labs(x="Age", y="Number of Sexual Partners Within the Last 12 Months") + #, title="Ages of last three sexual partners") +
+#   scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy")) +
+#   facet_wrap(~ country.name, nrow=2) +
+#   theme(legend.position="top")
+```
+
+The below plot shows a strong correlation between sexual activity/pregnancy and school attendance.  With the exception of Lesotho, the probability of attending school drops dramatically with the incidence of any pregnancy.  While there is variation between countries, there is an overall trend of separation between those who have and have not had any pregnancies---those who have had unprotected sex and those who are either more likely to have protected sex or abstained from sex. If teen pregnancy has a causal effect on school attendance and the relative risk informational intervention is able to reduce pregnancy rates, we should expect to see big improvements.
+
+```{r dropout, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6}
+dropout.fit.data <- dhs.data %>%
+  filter(!is.na(school.attend.status) | !is.na(still.in.school) | !is.na(curr.school.attend)) %>%
+  mutate(age=factor(age),
+         not.attending.school=ifelse(!is.na(still.in.school), 
+                                     still.in.school, 
+                                     ifelse(is.na(school.attend.status), 
+                                            curr.school.attend,
+                                            ifelse(school.attend.status %in% c("never", "dropout", "left"), 0, 1)))) %>%
+  group_by(country.name) %>%
+  do(reg.dhs(not.attending.school ~ age*sex.activity, .data=., new.data=expand.grid(sex.activity=factor(levels(.$sex.activity)), age=factor(15:19)))) 
+
+dropout.fit.data %>% 
+  prop.plot("Attending School") +
+  scale_fill_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy", "Inactive")) +
+  scale_color_discrete("Sexual Activity", labels=c("Active, No Pregnancies", "Active, Had Pregnancy", "Inactive")) 
+```
+
+We end our analysis by looking at HIV infection status.  The first plot below presents the proportion of young women who are HIV positive.  While @Dupas2011b was not able to estimate the effect of the relative risk informational intervention on HIV infection, because of the low prevalence of HIV among the studied age group in Kenya, this plot clearly demonstrates the presence of infection among the youngest in some of the other countries. The second plot presents the proportion of HIV infection for both men and women across all age groups between 15 and 50. This is similar to what was presented as part of the relative risk informational intervention in Kenya. We observe high infection rates for women compared to men, for whom the rate of infection increases slowly with age, thus younger men as less likely to be infected than older men.
+
+```{r hiv, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6}
+hiv.prop.fit.data <- dhs.data %>%
+  filter(!is.na(hiv.positive)) %>% 
+  mutate(age=factor(age)) %>%
+  group_by(country.name) %>%
+  do(reg.dhs(hiv.positive ~ age, .data=., new.data=expand.grid(age=factor(15:19)))) 
+
+hiv.prop.fit.data %>%
+  ggplot(aes(age, fit)) +
+  geom_bar(aes(group=1), stat="identity", alpha=0.6) +
+  labs(x="Age") +
+  scale_y_continuous("Proportion of HIV Positive Women", breaks=seq(0, 0.2, 0.05)) +
+  facet_wrap(~ country.name, nrow=2)
+```
+
+```{r all-hiv, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6}
+all.dhs.data %>%
+  filter(age < 50, !is.na(hiv.positive)) %>% 
+  mutate_each(funs(droplevels), age.group) %>%
+  group_by(country.name) %>%
+  do(reg.dhs(hiv.positive ~ age.group*gender, .data=., new.data=expand.grid(gender=unique(.$gender), 
+                                                                            age.group=unique(.$age.group)))) %>%
+  ggplot(aes(age.group, group=gender, fill=gender)) +
+  geom_bar(aes(y=fit), stat="identity", alpha=0.6, position="dodge") +
+  # geom_text(aes(y=fit, label=sprintf("%.1f", fit * 100)), position=position_dodge(width=1)) +
+  labs(y="Proportion of HIV Positive Individuals") +
+  scale_x_discrete("Age Group") +
+  scale_fill_discrete("Gender", labels=c("Female", "Male")) +
+  facet_wrap(~ country.name, nrow=2) +
+  theme(legend.position="top", axis.text.x = element_text(angle = 25, hjust = 1)) 
+```
+
+
+The below plot looks at the correlation between HIV infection status and sexual partners' ages. While the analysis is imprecise due to the small sample size of the HIV positive women, there continues to be an observable positive correlation between risky sex (HIV infection) and partners' ages.
+
+```{r hiv-partner-age-1, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=4}
+dhs.data %>%
+  filter(!is.na(hiv.positive), age <= 19) %>% 
+  select(country.name, age, sex.activity, hiv.positive, starts_with("age.last.sex.partner")) %>%
+  gather(partner, partner.age, age.last.sex.partner.1:age.last.sex.partner.3) %>%
+  filter(sex.activity != "inactive", !is.na(partner.age)) %>%
+  ggplot(aes(factor(hiv.positive), partner.age)) +
+  geom_boxplot(aes(fill=factor(hiv.positive)), notch=FALSE, outlier.color="hotpink") +
+  labs(x=NULL, y="Partner's Age") +
+  scale_y_continuous(breaks=seq(10, 70, 5)) +
+  # scale_fill_discrete("HIV Status", labels=c("Negative", "Positive"), pal) +
+  scale_fill_brewer("HIV Status", labels=c("Negative", "Positive"), palette="Dark2") +
+  # coord_cartesian(ylim=c(10, 40)) +
+  facet_wrap(~ country.name, nrow=1) +
+  theme(legend.position="top", axis.text.x=element_blank())
+```
+
+```{r hiv-partner-age-2, warning=FALSE, echo=FALSE, results='hide', fig.width=10, fig.height=6, eval=FALSE}
+dhs.data %>%
+  filter(!is.na(hiv.positive)) %>% 
+  select(country.name, age, sex.activity, hiv.positive, starts_with("age.last.sex.partner")) %>%
+  gather(partner, partner.age, age.last.sex.partner.1:age.last.sex.partner.3) %>%
+  filter(sex.activity != "inactive", !is.na(partner.age)) %>%
+  ggplot(aes(factor(age), partner.age)) +
+  # geom_violin(aes(color=sex.activity)) +
+  geom_boxplot(aes(fill=factor(hiv.positive))) +
+  labs(x="Age", y="Partner's Age", title="Ages of last three sexual partners") +
+  scale_fill_discrete("HIV Status") +
+  coord_cartesian(ylim=c(10, 40)) +
+  facet_wrap(~ country.name, nrow=2) +
+  theme(legend.position="top")
+```
+
+
+# References
