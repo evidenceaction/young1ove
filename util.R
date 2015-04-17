@@ -44,20 +44,34 @@ predict.rob <- function(x, vcov.=vcov(x), signif.level=0.1, newdata) {
               fit.min=fit - merr))
 }
 
-reg.dhs <- function(.formula, .data, new.data=NULL, ignore.error=FALSE) tryCatch({
-  plm(.formula, data=.data, model="pooling", index=c("cluster.id", "caseid")) %>%
-    predict.rob(vcov=plm::vcovHC(., cluster="group"), newdata=new.data) %>%
-    magrittr::extract(c("fit", "fit.min", "fit.max")) %>% 
-    as.data.frame %>%
-    (function(results.data) {
-      if (!is.null(new.data)) {
-        cbind(new.data, results.data)  
-      } else if (length(all.vars(.formula)) == 1) {
-        results.data[1, ]
-      }
-    }) %>%
+reg.dhs <- function(.formula, .data, new.data=NULL, ignore.error=FALSE, predict.fit=TRUE) tryCatch({
+  reg.res <- plm(.formula, data=.data, model="pooling", index=c("cluster.id", "caseid")) 
+  
+  robust.vcov <- plm::vcovHC(reg.res, cluster="group")
+  
+  if (predict.fit) {
+    ret <- reg.res %>%
+      predict.rob(vcov=robust.vcov, newdata=new.data) %>%
+      magrittr::extract(c("fit", "fit.min", "fit.max", "se.fit")) %>% 
+      as.data.frame %>%
+      (function(results.data) {
+        if (!is.null(new.data)) {
+          cbind(new.data, results.data)  
+        } else if (length(all.vars(.formula)) == 1) {
+          results.data[1, ]
+        }
+      }) 
+  } else {
+    ret <- coeftest(reg.res, vcov=robust.vcov) %>%
+      magrittr::extract(,) %>%
+      as.data.frame %>%
+      set_names(c("est", "se", "t.value", "p.value")) %>%
+      mutate(coef=rownames(.))
+  }
+  
+  ret %>% 
     mutate(country.code=first(.data$country.code),
-           year=max(.data$year.interview))
+           year=max(.data$year.interview)) 
 }, error=function(err) if (!ignore.error) browser() else data.frame())
 
 estimate.teen.preg <- function(.data) {
@@ -75,13 +89,13 @@ add.if.missing.var <- function(.data, var) {
   return(.data)
 }
 
-prop.plot <- function(.data, ylab, title=NULL, .group="sex.activity", group.name="Sexual Activity") {
+prop.plot <- function(.data, ylab, title=NULL, .group="sex.activity", group.name="Sexual Activity", .nrow=2) {
   .data %>% 
     mutate(age=factor(age)) %>% 
     ggplot(aes_string(x="age", y="fit", group=.group)) +
     geom_line(aes_string(color=.group)) +
     geom_ribbon(aes_string(ymin="fit.min", ymax="fit.max", fill=.group), alpha=0.2) +
     labs(x="Age", y=ylab, title=title) +
-    facet_wrap(~ country.name, nrow=2) +
+    facet_wrap(~ country.name, nrow=.nrow) +
     theme(legend.position="top")
 }
