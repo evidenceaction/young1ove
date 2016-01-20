@@ -260,11 +260,12 @@ men.hiv.prop %>%
 
 cat("Teen Pregnancies (HIV Risk) (Ages 15-16)")
 
-teen.preg.prop %>% 
+teen.preg.prop %<>% 
   left_join(men.hiv.prop %>% transmute(country.name, hiv.prop=fit), by=c("Country"="country.name")) %>%
   mutate("Older HIV Prop"=Older * hiv.prop) %>%
   rename("HIV Prop"=hiv.prop)
-  print
+
+teen.preg.prop %>% print
 ```
 
 The below plot looks at the correlation between HIV infection status and sexual partners' ages. While the analysis is imprecise due to the small sample size of the HIV positive women, there continues to be an observable positive correlation between risky sex (HIV infection) and partners' ages.
